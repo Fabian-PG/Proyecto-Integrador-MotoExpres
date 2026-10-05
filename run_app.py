@@ -34,8 +34,16 @@ def main():
         frontend_process.wait()
     except KeyboardInterrupt:
         print("\nDeteniendo servidores...")
-        backend_process.terminate()
-        frontend_process.terminate()
+        for p in [backend_process, frontend_process]:
+            try:
+                if p and p.poll() is None:
+                    p.terminate()
+                    p.wait(timeout=2)
+            except Exception:
+                try:
+                    p.kill()
+                except Exception:
+                    pass
         print("Servidores detenidos.")
 
 if __name__ == "__main__":
