@@ -3,13 +3,27 @@ import uuid
 import io
 import pandas as pd
 from sqlalchemy.orm import Session
-from sqlalchemy import inspect
 from app.models.dataset import DatasetMeta
 from app.database import engine
 
 def compute_checksum(file_bytes: bytes) -> str:
     """Computes SHA-256 hash of file content to detect duplicate uploads."""
     return hashlib.sha256(file_bytes).hexdigest()
+
+def _dataset_to_dict(meta: DatasetMeta) -> dict:
+    return {
+        "id": meta.id,
+        "filename": meta.filename,
+        "original_filename": meta.original_filename,
+        "file_checksum": meta.file_checksum,
+        "file_type": meta.file_type,
+        "total_rows": meta.total_rows,
+        "total_columns": meta.total_columns,
+        "raw_table_name": meta.raw_table_name,
+        "cleaned_table_name": meta.cleaned_table_name,
+        "anonymized_table_name": meta.anonymized_table_name,
+        "created_at": meta.created_at.isoformat() if meta.created_at else None
+    }
 
 def process_uploaded_file(file_bytes: bytes, filename: str, db: Session):
     """
@@ -24,7 +38,7 @@ def process_uploaded_file(file_bytes: bytes, filename: str, db: Session):
         return {
             "status": "duplicate",
             "message": f"El archivo '{filename}' ya fue cargado previamente en el sistema.",
-            "dataset": existing
+            "dataset": _dataset_to_dict(existing)
         }
 
     # 2. Parse file format
@@ -46,7 +60,7 @@ def process_uploaded_file(file_bytes: bytes, filename: str, db: Session):
     raw_table_name = f"raw_{dataset_id}"
 
     # 4. Save raw dataset into Database (preserves original data intact)
-    df.to_sql(name=raw_table_name, con=engine, if_exists="replace", index=False)
+    df.to_sql(name=raw_table_name, con=engine, if_exists="replace", index=False, chunksize=5000)
 
     # 5. Build columns metadata
     cols_meta = []
@@ -77,11 +91,11 @@ def process_uploaded_file(file_bytes: bytes, filename: str, db: Session):
     return {
         "status": "created",
         "message": f"Archivo '{filename}' cargado exitosamente.",
-        "dataset": meta
+        "dataset": _dataset_to_dict(meta)
     }
 
-def get_dataset_dataframe(dataset_id: str, table_type: str = "raw") -> pd.DataFrame:
-    """Retrieves dataset table as Pandas DataFrame from DB."""
+def get_dataset_dataframe(dataset_id: str, table_type: str = "raw", limit: int = None, offset: int = None) -> pd.DataFrame:
+    """Retrieves dataset table as Pandas DataFrame from DB with optional limit/offset."""
     if table_type == "raw":
         table_name = f"raw_{dataset_id}"
     elif table_type == "cleaned":
@@ -91,4 +105,9 @@ def get_dataset_dataframe(dataset_id: str, table_type: str = "raw") -> pd.DataFr
     else:
         table_name = f"raw_{dataset_id}"
 
+    if limit is not None:
+        query = f"SELECT * FROM {table_name} LIMIT {limit} OFFSET {offset or 0}"
+        return pd.read_sql_query(query, con=engine)
+
     return pd.read_sql_table(table_name, con=engine)
+

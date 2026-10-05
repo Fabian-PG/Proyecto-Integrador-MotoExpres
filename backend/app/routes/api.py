@@ -44,32 +44,33 @@ def list_datasets(db: Session = Depends(get_db)):
 
 @router.get("/datasets/{dataset_id}")
 def get_dataset_detail(dataset_id: str, view_type: str = "raw", page: int = 1, limit: int = 50, db: Session = Depends(get_db)):
-    """Retrieves dataset details and preview rows."""
+    """Retrieves dataset details and preview rows efficiently."""
     meta = db.query(DatasetMeta).filter(DatasetMeta.id == dataset_id).first()
     if not meta:
         raise HTTPException(status_code=404, detail="Dataset no encontrado")
 
-    try:
-        df = get_dataset_dataframe(dataset_id, table_type=view_type)
-    except Exception as e:
-        df = get_dataset_dataframe(dataset_id, table_type="raw")
-
     start = (page - 1) * limit
-    end = start + limit
-    preview_df = df.iloc[start:end].copy().fillna("")
+    try:
+        df = get_dataset_dataframe(dataset_id, table_type=view_type, limit=limit, offset=start)
+    except Exception:
+        df = get_dataset_dataframe(dataset_id, table_type="raw", limit=limit, offset=start)
+
+    # Convert timestamps, NaNs and null values safely to clean string representations
+    preview_df = df.astype(str).replace({"nan": "", "None": "", "<NA>": "", "NaT": ""})
 
     return {
         "dataset_info": {
             "id": meta.id,
             "original_filename": meta.original_filename,
             "file_type": meta.file_type,
-            "total_rows": len(df),
-            "total_columns": len(df.columns),
+            "total_rows": meta.total_rows,
+            "total_columns": meta.total_columns,
             "columns": df.columns.tolist()
         },
         "view_type": view_type,
         "rows": preview_df.to_dict(orient="records")
     }
+
 
 # ==========================================
 # 2. DATA QUALITY & CLEANING ENDPOINTS
