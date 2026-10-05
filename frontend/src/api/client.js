@@ -25,6 +25,11 @@ export const api = {
     return res.data;
   },
 
+  deleteDataset: async (datasetId) => {
+    const res = await axios.delete(`${API_BASE}/datasets/${datasetId}`);
+    return res.data;
+  },
+
   // Quality & Cleaning
   getQualityDiagnosis: async (datasetId) => {
     const res = await axios.get(`${API_BASE}/quality/diagnose/${datasetId}`);
