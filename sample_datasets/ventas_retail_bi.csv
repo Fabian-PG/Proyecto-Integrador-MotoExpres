@@ -1,0 +1,16 @@
+ID_Transaccion,Cliente_Nombre,Cliente_Email,Categoria_Producto,Monto_Venta,Cantidad,Ciudad_Venta,Fecha_Venta
+101,Carlos Gomez ,carlos.gomez@gmail.com,Electrónica,450.0,2,Bogotá,2024-01-15
+102,Maria Lopez,maria.lopez_invalid,Hogar,-120.0,1,Medellín,2024-02-10
+103, Juan Perez,juan@empresa.com,Ropa,89.9,3,Cali,2024-03-05
+104,Ana Martinez,ana.m@yahoo.es,Electrónica,1200.0,5,Bogotá,2024-04-12
+105,Pedro Silva,pedro.silva@outlook.com,Hogar,,1,Barranquilla,2024-05-20
+106,Laura Rios,laura.rios@gmail.com,Electrónica,350.0,2,Bogotá,2024-06-18
+107,David Castro,david.castro@corp.co,Ropa,45.0,4,Cali,2024-07-22
+108,Sofia Vega,sofia.vega@domain.org,Hogar,9500.0,15,Medellín,2030-12-31
+109,Carlos Gomez ,carlos.gomez@gmail.com,Electrónica,450.0,2,Bogotá,2024-01-15
+110,Maria Lopez,maria.lopez_invalid,Hogar,-120.0,1,Medellín,2024-02-10
+105,Pedro Silva,pedro.silva@outlook.com,Hogar,,1,Barranquilla,2024-05-20
+111,Jorge Diaz,jorge.d@mail.com,Electrónica,500.0,2,Bogotá,2024-08-14
+112,Elena Torres,elena@tech.io,Ropa,65.5,1,Cali,2024-09-01
+113,Gabriel Ruiz,gabriel@web.net,Hogar,210.0,3,Bucaramanga,2024-09-15
+114,Carmen Ortiz,carmen@service.co,Electrónica,890.0,2,Cartagena,2024-10-01
