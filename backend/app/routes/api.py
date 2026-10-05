@@ -1,8 +1,10 @@
+import math
+import pandas as pd
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.dataset import DatasetMeta, QualityBitacora
-from app.services.ingestion import process_uploaded_file, get_dataset_dataframe
+from app.services.ingestion import process_uploaded_file, get_dataset_dataframe, delete_dataset
 from app.services.quality_diagnosis import diagnose_dataset
 from app.services.cleaning import execute_cleaning_and_audit
 from app.services.star_schema import generate_star_schema
@@ -50,13 +52,25 @@ def get_dataset_detail(dataset_id: str, view_type: str = "raw", page: int = 1, l
         raise HTTPException(status_code=404, detail="Dataset no encontrado")
 
     start = (page - 1) * limit
+    actual_view = view_type
     try:
         df = get_dataset_dataframe(dataset_id, table_type=view_type, limit=limit, offset=start)
     except Exception:
         df = get_dataset_dataframe(dataset_id, table_type="raw", limit=limit, offset=start)
+        actual_view = "raw"
 
-    # Convert timestamps, NaNs and null values safely to clean string representations
-    preview_df = df.astype(str).replace({"nan": "", "None": "", "<NA>": "", "NaT": ""})
+    # Safely convert NaNs, nulls, and out-of-range floats to JSON-compliant values
+    rows = []
+    for r in df.to_dict(orient="records"):
+        clean_row = {}
+        for k, v in r.items():
+            if pd.isna(v) or v is None:
+                clean_row[k] = ""
+            elif isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                clean_row[k] = ""
+            else:
+                clean_row[k] = str(v)
+        rows.append(clean_row)
 
     return {
         "dataset_info": {
@@ -67,9 +81,20 @@ def get_dataset_detail(dataset_id: str, view_type: str = "raw", page: int = 1, l
             "total_columns": meta.total_columns,
             "columns": df.columns.tolist()
         },
-        "view_type": view_type,
-        "rows": preview_df.to_dict(orient="records")
+        "view_type": actual_view,
+        "rows": rows
     }
+
+@router.delete("/datasets/{dataset_id}")
+def remove_dataset(dataset_id: str, db: Session = Depends(get_db)):
+    """Safely deletes dataset, associated tables and bitacora records."""
+    try:
+        return delete_dataset(dataset_id, db)
+    except ValueError as ve:
+        raise HTTPException(status_code=404, detail=str(ve))
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 
 # ==========================================

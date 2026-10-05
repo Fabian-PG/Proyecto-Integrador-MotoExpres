@@ -3,7 +3,8 @@ import uuid
 import io
 import pandas as pd
 from sqlalchemy.orm import Session
-from app.models.dataset import DatasetMeta
+from sqlalchemy import text
+from app.models.dataset import DatasetMeta, QualityBitacora
 from app.database import engine
 
 def compute_checksum(file_bytes: bytes) -> str:
@@ -110,4 +111,40 @@ def get_dataset_dataframe(dataset_id: str, table_type: str = "raw", limit: int =
         return pd.read_sql_query(query, con=engine)
 
     return pd.read_sql_table(table_name, con=engine)
+
+def delete_dataset(dataset_id: str, db: Session) -> dict:
+    """
+    Safely deletes a dataset:
+    - Drops dynamic tables (raw, cleaned, anonymized)
+    - Deletes QualityBitacora records
+    - Deletes DatasetMeta record (frees up SHA256 checksum for re-upload)
+    """
+    meta = db.query(DatasetMeta).filter(DatasetMeta.id == dataset_id).first()
+    if not meta:
+        raise ValueError("Dataset no encontrado")
+
+    original_filename = meta.original_filename
+    tables_to_drop = [
+        meta.raw_table_name,
+        meta.cleaned_table_name,
+        meta.anonymized_table_name,
+        f"raw_{dataset_id}",
+        f"cleaned_{dataset_id}",
+        f"anonymized_{dataset_id}"
+    ]
+
+    with engine.begin() as conn:
+        for tbl in set(filter(None, tables_to_drop)):
+            conn.execute(text(f"DROP TABLE IF EXISTS {tbl}"))
+
+    db.query(QualityBitacora).filter(QualityBitacora.dataset_id == dataset_id).delete()
+    db.delete(meta)
+    db.commit()
+
+    return {
+        "status": "success",
+        "message": f"Base de datos '{original_filename}' eliminada correctamente.",
+        "deleted_id": dataset_id
+    }
+
 
