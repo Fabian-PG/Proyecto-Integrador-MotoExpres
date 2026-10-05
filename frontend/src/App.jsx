@@ -56,6 +56,33 @@ export default function App() {
     fetchDatasetsList(newDatasetId);
   };
 
+  const handleDeleteDataset = async (dataset) => {
+    const confirmDelete = window.confirm(
+      `¿Deseas eliminar la base de datos '${dataset.original_filename}'?\n\nEsta acción limpiará los registros, las tablas de datos y su bitácora de auditoría.`
+    );
+    if (!confirmDelete) return;
+
+    try {
+      await api.deleteDataset(dataset.id);
+      
+      const updatedList = datasets.filter((d) => d.id !== dataset.id);
+      setDatasets(updatedList);
+
+      if (activeDatasetId === dataset.id) {
+        if (updatedList.length > 0) {
+          setActiveDatasetId(updatedList[0].id);
+        } else {
+          setActiveDatasetId(null);
+          setPreviewData(null);
+          setActiveSubtitle('carga');
+        }
+      }
+    } catch (err) {
+      console.error("Error al eliminar el dataset:", err);
+      alert("Error al eliminar la base de datos: " + (err.response?.data?.detail || err.message));
+    }
+  };
+
   return (
     <div className="app-container">
       {/* Left Sidebar Menu: Title Hito 1 & 4 Subtitles */}
@@ -71,6 +98,7 @@ export default function App() {
           activeDatasetId={activeDatasetId}
           setActiveDatasetId={setActiveDatasetId}
           onAddNewClick={() => setActiveSubtitle('carga')}
+          onDeleteDataset={handleDeleteDataset}
         />
 
         {/* Content Viewport per Subtitle View */}
