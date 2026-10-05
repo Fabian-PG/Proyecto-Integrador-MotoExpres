@@ -1,7 +1,7 @@
 import React from 'react';
-import { Database, FileSpreadsheet, PlusCircle } from 'lucide-react';
+import { Database, FileSpreadsheet, PlusCircle, X } from 'lucide-react';
 
-export default function TopDatasetNav({ datasets, activeDatasetId, setActiveDatasetId, onAddNewClick }) {
+export default function TopDatasetNav({ datasets, activeDatasetId, setActiveDatasetId, onAddNewClick, onDeleteDataset }) {
   return (
     <header className="top-nav">
       <div className="tabs-label">
@@ -22,10 +22,22 @@ export default function TopDatasetNav({ datasets, activeDatasetId, setActiveData
                 key={ds.id}
                 className={`dataset-tab ${isActive ? 'active' : ''}`}
                 onClick={() => setActiveDatasetId(ds.id)}
+                title={`Seleccionar base de datos ${ds.original_filename}`}
               >
                 <FileSpreadsheet size={14} style={{ color: isActive ? 'var(--accent-gold)' : 'var(--text-muted)' }} />
-                <span>{ds.original_filename}</span>
-                <span className="tab-badge">{ds.total_rows} filas</span>
+                <span className="tab-filename">{ds.original_filename}</span>
+                <span className="tab-badge">{ds.total_rows.toLocaleString()} filas</span>
+                <button
+                  type="button"
+                  className="tab-close-btn"
+                  title={`Eliminar base de datos '${ds.original_filename}' del sistema`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    if (onDeleteDataset) onDeleteDataset(ds);
+                  }}
+                >
+                  <X size={13} />
+                </button>
               </div>
             );
           })
