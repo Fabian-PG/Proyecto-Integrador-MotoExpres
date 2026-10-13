@@ -8,78 +8,133 @@ import re
 
 
 REVENUE_HINTS = [
-    "monto_venta", "monto", "ingreso", "ingresos", "revenue", "venta", "ventas",
-    "precio", "total", "importe", "amount", "sales", "valor", "pago", "facturacion"
+    "monto_venta", "ingresos", "ingreso", "revenue", "monto", "precio",
+    "venta", "ventas", "total", "importe", "amount", "sales", "valor", "pago", "facturacion"
 ]
 COST_HINTS = ["costo", "costos", "cost", "costs", "gasto", "gastos", "cogs"]
-DATE_HINTS = ["fecha", "date", "datetime", "periodo", "period", "timestamp", "created"]
-REGION_HINTS = [
-    "ciudad", "region", "país", "pais", "country", "departamento", "zona",
-    "estado", "provincia", "localidad", "ubicacion", "ubicación"
+DATE_PREFERRED = [
+    "fecha_orden", "fecha_venta", "fecha_alta", "fecha_pedido", "order_date",
+    "sale_date", "fecha", "date", "datetime", "periodo", "timestamp", "created_at", "created"
 ]
+REGION_HINTS = [
+    "ciudad_venta", "ciudad_residencia", "ciudad", "region", "país", "pais",
+    "country", "departamento", "zona", "provincia", "localidad", "ubicacion",
+    "ubicación", "centro", "sede", "sucursal", "tienda"
+]
+# "estado" is deliberately omitted: in logistics DBs it usually means order status
 SERVICE_HINTS = [
-    "servicio", "servicios", "categoria", "categoría", "producto", "plan",
-    "planes", "tipo_servicio", "categoria_producto", "service", "category", "product"
+    "categoria_producto", "tipo_servicio", "servicio", "servicios", "categoria",
+    "categoría", "producto", "plan", "planes", "service", "category", "product"
 ]
 ORDER_HINTS = [
-    "id_transaccion", "transaccion", "orden", "order", "pedido", "factura",
-    "id_orden", "id_pedido", "transaction", "ticket"
+    "id_transaccion", "orden_id", "id_orden", "id_pedido", "transaccion",
+    "orden", "order", "pedido", "factura", "transaction", "ticket"
 ]
-STATUS_HINTS = ["estado", "status", "estatus", "cancel", "cancelacion", "cancelación"]
+STATUS_HINTS = ["estado", "status", "estatus", "cancelacion", "cancelación"]
 DELIVERY_HINTS = [
-    "entrega", "entregado", "a_tiempo", "ontime", "on_time", "puntual",
-    "delivery", "cumplimiento"
+    "entrega_a_tiempo", "a_tiempo", "entrega", "entregado", "ontime",
+    "on_time", "puntual", "delivery", "cumplimiento"
 ]
-ACTIVE_HINTS = ["activo", "activa", "active", "plan_activo", "estado_plan"]
-CANCEL_VALUES = {"cancelado", "cancelada", "cancelled", "canceled", "anulado", "anulada"}
+ACTIVE_HINTS = ["plan_activo", "activo", "activa", "active", "estado_plan"]
+CANCEL_VALUES = {
+    "cancelado", "cancelada", "cancelled", "canceled", "anulado", "anulada",
+    "devuelta", "devuelto", "returned"
+}
 
 
 def _norm(name: str) -> str:
     return re.sub(r"[^a-z0-9_]", "", str(name).lower().strip().replace(" ", "_"))
 
 
-def _find_column(columns, hints):
+def _find_column(columns, hints, exclude=None):
+    exclude = {_norm(c) for c in (exclude or [])}
     normalized = {_norm(c): c for c in columns}
     for hint in hints:
         hint_n = _norm(hint)
+        # Exact match first
+        if hint_n in normalized and hint_n not in exclude:
+            return normalized[hint_n]
         for ncol, original in normalized.items():
-            if hint_n == ncol or hint_n in ncol:
+            if ncol in exclude:
+                continue
+            if hint_n in ncol:
                 return original
     return None
 
 
+def _score_date_column(df: pd.DataFrame, col: str) -> float:
+    """Higher score = better date candidate. Penalize surrogate keys like fecha_id."""
+    ncol = _norm(col)
+    score = 0.0
+    if ncol.endswith("_id") or ncol.endswith("id"):
+        score -= 5.0
+    if pd.api.types.is_datetime64_any_dtype(df[col]):
+        score += 10.0
+    sample = df[col].dropna().head(20)
+    if len(sample) == 0:
+        return score - 10
+    parsed = pd.to_datetime(sample, errors="coerce")
+    ok = parsed.notna().sum()
+    score += (ok / len(sample)) * 5
+    if ok:
+        years = parsed.dt.year.dropna()
+        if len(years) and years.between(1990, 2100).mean() > 0.7:
+            score += 4
+        elif len(years) and (years < 1980).mean() > 0.5:
+            score -= 4
+    for token in ("orden", "venta", "pedido", "alta", "date", "fecha"):
+        if token in ncol and not ncol.endswith("_id"):
+            score += 2
+    return score
+
+
+def _detect_date(df: pd.DataFrame, cols: list) -> str | None:
+    preferred = _find_column(cols, DATE_PREFERRED)
+    candidates = []
+    for c in cols:
+        ncol = _norm(c)
+        if any(h in ncol for h in ("fecha", "date", "datetime", "periodo", "timestamp", "created")):
+            candidates.append(c)
+        elif pd.api.types.is_datetime64_any_dtype(df[c]):
+            candidates.append(c)
+    if preferred and preferred not in candidates:
+        candidates.append(preferred)
+    if not candidates:
+        return preferred
+    ranked = sorted(candidates, key=lambda c: _score_date_column(df, c), reverse=True)
+    best = ranked[0]
+    if _score_date_column(df, best) < 0:
+        return preferred
+    return best
+
+
 def detect_columns(df: pd.DataFrame) -> dict:
-    """Detects semantic roles from dataframe column names."""
+    """Detects semantic roles from dataframe column names and dtypes."""
     cols = list(df.columns)
+
+    status = _find_column(cols, STATUS_HINTS)
+    # Region must not reuse the status column
+    region = _find_column(cols, REGION_HINTS, exclude=[status] if status else None)
+
     mapping = {
         "revenue": _find_column(cols, REVENUE_HINTS),
         "cost": _find_column(cols, COST_HINTS),
-        "date": _find_column(cols, DATE_HINTS),
-        "region": _find_column(cols, REGION_HINTS),
+        "date": _detect_date(df, cols),
+        "region": region,
         "service": _find_column(cols, SERVICE_HINTS),
         "order_id": _find_column(cols, ORDER_HINTS),
-        "status": _find_column(cols, STATUS_HINTS),
+        "status": status,
         "delivery": _find_column(cols, DELIVERY_HINTS),
         "active": _find_column(cols, ACTIVE_HINTS),
     }
 
-    # Fallback: first numeric column as revenue if none matched
     if not mapping["revenue"]:
-        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        numeric_cols = [
+            c for c in df.select_dtypes(include=[np.number]).columns.tolist()
+            if not _norm(c).endswith("_id")
+        ]
         if numeric_cols:
             mapping["revenue"] = numeric_cols[0]
-
-    # Fallback: first datetime-like column
-    if not mapping["date"]:
-        for c in cols:
-            if pd.api.types.is_datetime64_any_dtype(df[c]):
-                mapping["date"] = c
-                break
-            sample = df[c].dropna().astype(str).head(5)
-            parsed = pd.to_datetime(sample, errors="coerce")
-            if parsed.notna().sum() >= max(1, len(sample) // 2):
-                mapping["date"] = c
-                break
 
     return mapping
 
@@ -92,7 +147,6 @@ def prepare_analytics_frame(df: pd.DataFrame) -> tuple:
     work = df.copy()
     mapping = detect_columns(work)
 
-    # Parse dates
     if mapping["date"]:
         work["_fecha"] = pd.to_datetime(work[mapping["date"]], errors="coerce")
     else:
@@ -103,13 +157,11 @@ def prepare_analytics_frame(df: pd.DataFrame) -> tuple:
     work["_mes_nombre"] = work["_fecha"].dt.strftime("%b")
     work["_periodo"] = work["_fecha"].dt.to_period("M").astype(str)
 
-    # Revenue
     if mapping["revenue"]:
         work["_ingresos"] = pd.to_numeric(work[mapping["revenue"]], errors="coerce").fillna(0)
     else:
         work["_ingresos"] = 0.0
 
-    # Cost (estimate 60% of revenue when absent)
     if mapping["cost"]:
         work["_costo"] = pd.to_numeric(work[mapping["cost"]], errors="coerce").fillna(0)
     else:
@@ -117,31 +169,48 @@ def prepare_analytics_frame(df: pd.DataFrame) -> tuple:
 
     work["_margen"] = work["_ingresos"] - work["_costo"]
 
-    # Region / service labels
-    work["_region"] = work[mapping["region"]].astype(str) if mapping["region"] else "Sin región"
-    work["_servicio"] = work[mapping["service"]].astype(str) if mapping["service"] else "General"
+    if mapping["region"]:
+        region_series = work[mapping["region"]]
+        # Friendly labels for numeric centro/sede ids
+        if pd.api.types.is_numeric_dtype(region_series) or _norm(mapping["region"]).endswith("_id"):
+            work["_region"] = region_series.apply(
+                lambda v: f"Centro {int(v)}" if pd.notna(v) and str(v).replace('.', '', 1).isdigit() else str(v)
+            )
+        else:
+            work["_region"] = region_series.astype(str)
+    else:
+        work["_region"] = "Sin región"
 
-    # Cancellations
+    if mapping["service"]:
+        svc = work[mapping["service"]]
+        if pd.api.types.is_numeric_dtype(svc) or _norm(mapping["service"]).endswith("_id"):
+            work["_servicio"] = svc.apply(
+                lambda v: f"Servicio {int(float(v))}" if pd.notna(v) else "Sin servicio"
+            )
+        else:
+            work["_servicio"] = svc.astype(str)
+    else:
+        work["_servicio"] = "General"
+
     if mapping["status"]:
         status_norm = work[mapping["status"]].astype(str).str.lower().str.strip()
         work["_cancelado"] = status_norm.isin(CANCEL_VALUES)
     else:
         work["_cancelado"] = False
 
-    # Effective metric: on-time deliveries OR active plans
     if mapping["delivery"]:
         deliv = work[mapping["delivery"]]
-        if pd.api.types.is_bool_dtype(deliv) or set(deliv.dropna().unique()).issubset({0, 1, True, False, "0", "1", "True", "False", "Si", "No", "si", "no"}):
-            work["_efectivo"] = deliv.astype(str).str.lower().isin(["1", "true", "si", "sí", "yes", "a tiempo", "ontime"])
-        else:
-            work["_efectivo"] = deliv.astype(str).str.lower().str.contains("tiempo|ontime|puntual|entregado", na=False)
+        work["_efectivo"] = deliv.astype(str).str.lower().isin(
+            ["1", "true", "si", "sí", "yes", "a tiempo", "ontime"]
+        )
         work["_efectivo_label"] = "Entregas a tiempo"
     elif mapping["active"]:
         act = work[mapping["active"]]
-        work["_efectivo"] = act.astype(str).str.lower().isin(["1", "true", "si", "sí", "yes", "activo", "activa", "active"])
+        work["_efectivo"] = act.astype(str).str.lower().isin(
+            ["1", "true", "si", "sí", "yes", "activo", "activa", "active"]
+        )
         work["_efectivo_label"] = "Planes activos"
     else:
-        # Fallback: non-cancelled rows with positive revenue
         work["_efectivo"] = (~work["_cancelado"]) & (work["_ingresos"] > 0)
         work["_efectivo_label"] = "Registros efectivos"
 
