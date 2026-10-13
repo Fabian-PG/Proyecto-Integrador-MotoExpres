@@ -1,7 +1,6 @@
 """
 Hito 2 analytics engine: Tablero general, Exploración de datos and Alertas.
 """
-import math
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from app.models.dataset import DatasetMeta
