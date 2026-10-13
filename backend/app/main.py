@@ -4,8 +4,16 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.database import engine, Base
 from app.routes.api import router as api_router
 
+# Import all models so SQLAlchemy registers them before create_all
+from app.models import dataset as _dataset_models  # noqa: F401
+from app.models import usuario as _usuario_models   # noqa: F401
+
 # Create database tables automatically on startup
 Base.metadata.create_all(bind=engine)
+
+# Seed initial users (gege, anda) if not already present
+from app.services.seed import seed_initial_users
+seed_initial_users()
 
 app = FastAPI(
     title="Inteligencia de Negocios - Platform API",
