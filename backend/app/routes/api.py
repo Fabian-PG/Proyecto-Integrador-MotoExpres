@@ -1,4 +1,6 @@
-from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
+from typing import Optional
+from fastapi import APIRouter, UploadFile, File, Depends, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from app.database import get_db
 from app.models.dataset import DatasetMeta, QualityBitacora
@@ -7,8 +9,34 @@ from app.services.quality_diagnosis import diagnose_dataset
 from app.services.cleaning import execute_cleaning_and_audit
 from app.services.star_schema import generate_star_schema
 from app.services.anonymization import analyze_anonymization_and_bias, execute_anonymization
+from app.services.auth import (
+    authenticate_user, logout_user, get_acceso_historial,
+    list_usuarios, create_usuario
+)
+from app.services.analytics import (
+    get_filter_options, build_tablero, build_exploracion, build_alertas
+)
 
 router = APIRouter(prefix="/api")
+
+
+class LoginRequest(BaseModel):
+    nombre_usuario: str
+    contrasena: str
+
+
+class LogoutRequest(BaseModel):
+    nombre_usuario: str
+
+
+class UsuarioCreateRequest(BaseModel):
+    rol: str
+    nombre_usuario: str
+    contrasena: str
+    region: str = "todos"
+    pantallas: str
+    datos: str = "todos"
+    activo: bool = True
 
 # ==========================================
 # 1. DATASETS & INGESTION ENDPOINTS
@@ -148,3 +176,110 @@ def run_anonymization_transformation(dataset_id: str, db: Session = Depends(get_
         return res
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ==========================================
+# 5. AUTHENTICATION & USERS ENDPOINTS
+# ==========================================
+@router.post("/auth/login")
+def login(payload: LoginRequest, request: Request, db: Session = Depends(get_db)):
+    """Authenticates user credentials and logs the access event."""
+    client_ip = request.client.host if request.client else None
+    return authenticate_user(payload.nombre_usuario, payload.contrasena, db, ip=client_ip)
+
+
+@router.post("/auth/logout")
+def logout(payload: LogoutRequest, request: Request, db: Session = Depends(get_db)):
+    """Registers a logout event in the access history."""
+    client_ip = request.client.host if request.client else None
+    return logout_user(payload.nombre_usuario, db, ip=client_ip)
+
+
+@router.get("/auth/accesos")
+def acceso_historial(limit: int = 200, db: Session = Depends(get_db)):
+    """Returns login/logout history for the Accesos view."""
+    return get_acceso_historial(db, limit=limit)
+
+
+@router.get("/usuarios")
+def get_usuarios(db: Session = Depends(get_db)):
+    """Lists registered platform users."""
+    return list_usuarios(db)
+
+
+@router.post("/usuarios")
+def post_usuario(payload: UsuarioCreateRequest, db: Session = Depends(get_db)):
+    """Creates a new user with role, screens and data scope."""
+    return create_usuario(payload.model_dump(), db)
+
+
+# ==========================================
+# 6. HITO 2 ANALYTICS ENDPOINTS
+# ==========================================
+@router.get("/analytics/{dataset_id}/filters")
+def analytics_filters(
+    dataset_id: str,
+    user_region: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Available years and regions for dashboard filters (requires cleaned dataset)."""
+    return get_filter_options(dataset_id, db, user_region=user_region)
+
+
+@router.get("/analytics/{dataset_id}/tablero")
+def analytics_tablero(
+    dataset_id: str,
+    anio_inicio: Optional[int] = None,
+    anio_fin: Optional[int] = None,
+    region: Optional[str] = None,
+    user_region: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Tablero general KPIs and charts filtered by year range and region."""
+    return build_tablero(
+        dataset_id, db,
+        anio_inicio=anio_inicio,
+        anio_fin=anio_fin,
+        region=region,
+        user_region=user_region
+    )
+
+
+@router.get("/analytics/{dataset_id}/exploracion")
+def analytics_exploracion(
+    dataset_id: str,
+    anio_inicio: Optional[int] = None,
+    anio_fin: Optional[int] = None,
+    region: Optional[str] = None,
+    mes: Optional[int] = None,
+    user_region: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Exploración de datos with participation table and service bars."""
+    return build_exploracion(
+        dataset_id, db,
+        anio_inicio=anio_inicio,
+        anio_fin=anio_fin,
+        region=region,
+        mes=mes,
+        user_region=user_region
+    )
+
+
+@router.get("/analytics/{dataset_id}/alertas")
+def analytics_alertas(
+    dataset_id: str,
+    anio_inicio: Optional[int] = None,
+    anio_fin: Optional[int] = None,
+    region: Optional[str] = None,
+    user_region: Optional[str] = None,
+    db: Session = Depends(get_db)
+):
+    """Anomaly detection charts and explanatory messages."""
+    return build_alertas(
+        dataset_id, db,
+        anio_inicio=anio_inicio,
+        anio_fin=anio_fin,
+        region=region,
+        user_region=user_region
+    )
