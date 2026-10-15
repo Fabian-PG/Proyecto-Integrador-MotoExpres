@@ -11,7 +11,7 @@ import ExploracionDatosView from './components/ExploracionDatosView';
 import AlertasView from './components/AlertasView';
 import AccesosView from './components/AccesosView';
 import CrearUsuariosView from './components/CrearUsuariosView';
-import { api } from './api/client';
+import { api, getRegionScope } from './api/client';
 
 function parsePantallas(pantallas) {
   if (!pantallas) return [];
@@ -28,7 +28,8 @@ function parsePantallas(pantallas) {
 function loadStoredUser() {
   try {
     const raw = localStorage.getItem('bi_user');
-    return raw ? JSON.parse(raw) : null;
+    const user = raw ? JSON.parse(raw) : null;
+    return user?.access_token ? user : null;
   } catch {
     return null;
   }
@@ -42,7 +43,13 @@ export default function App() {
   const [previewData, setPreviewData] = useState(null);
   const [activeViewType, setActiveViewType] = useState('raw');
 
-  const allowedScreens = useMemo(() => parsePantallas(user?.pantallas), [user]);
+  const allowedScreens = useMemo(() => {
+    const screens = parsePantallas(user?.pantallas);
+    if (getRegionScope(user).length > 0) {
+      return screens.filter((screen) => !['accesos', 'crear_usuarios'].includes(screen));
+    }
+    return screens;
+  }, [user]);
 
   // Pick first allowed screen when user logs in / pantallas change
   useEffect(() => {
@@ -55,6 +62,15 @@ export default function App() {
   useEffect(() => {
     if (user) fetchDatasetsList();
   }, [user]);
+
+  useEffect(() => {
+    const handleSessionExpired = () => {
+      setUser(null);
+      setActiveSubtitle(null);
+    };
+    window.addEventListener('bi:session-expired', handleSessionExpired);
+    return () => window.removeEventListener('bi:session-expired', handleSessionExpired);
+  }, []);
 
   useEffect(() => {
     if (activeDatasetId) {
@@ -115,6 +131,7 @@ export default function App() {
   }
 
   const can = (screen) => allowedScreens.includes(screen);
+  const isRegionRestricted = getRegionScope(user).length > 0;
   const showDatasetNav = ['carga', 'diagnostico', 'modelo', 'anonimizacion', 'tablero', 'exploracion', 'alertas']
     .includes(activeSubtitle);
 
@@ -133,7 +150,7 @@ export default function App() {
             datasets={datasets}
             activeDatasetId={activeDatasetId}
             setActiveDatasetId={setActiveDatasetId}
-            onAddNewClick={() => can('carga') && setActiveSubtitle('carga')}
+            onAddNewClick={!isRegionRestricted && can('carga') ? () => setActiveSubtitle('carga') : null}
           />
         )}
 
@@ -144,6 +161,7 @@ export default function App() {
               currentDataset={currentDataset}
               previewData={previewData}
               onRefresh={() => fetchPreview(activeDatasetId, activeViewType)}
+              user={user}
             />
           )}
 
@@ -151,17 +169,19 @@ export default function App() {
             <DiagnosticoLimpiezaView
               datasetId={activeDatasetId}
               onCleanCompleted={() => fetchDatasetsList(activeDatasetId)}
+              user={user}
             />
           )}
 
           {activeSubtitle === 'modelo' && can('modelo') && (
-            <ModeloDatosView datasetId={activeDatasetId} />
+            <ModeloDatosView datasetId={activeDatasetId} user={user} />
           )}
 
           {activeSubtitle === 'anonimizacion' && can('anonimizacion') && (
             <AnonimizacionView
               datasetId={activeDatasetId}
               onAnonymizeCompleted={() => fetchDatasetsList(activeDatasetId)}
+              user={user}
             />
           )}
 

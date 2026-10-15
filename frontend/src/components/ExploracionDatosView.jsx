@@ -5,7 +5,7 @@ import {
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell
 } from 'recharts';
-import { api } from '../api/client';
+import { api, getRegionScope } from '../api/client';
 
 const BAR_COLORS = ['#059669', '#2563EB', '#D97706', '#7C3AED', '#DC2626', '#0891B2'];
 
@@ -27,14 +27,17 @@ export default function ExploracionDatosView({ datasetId, currentDataset, user }
   const [anioFin, setAnioFin] = useState('');
   const [mes, setMes] = useState('');
 
-  const userRegion = user?.datos && user.datos !== 'todos' ? user.datos : null;
+  const regionScope = getRegionScope(user);
+  const isRegionLocked = regionScope.length > 0;
+  const lockedRegion = regionScope.length === 1 ? regionScope[0] : '__locked_scope__';
+  const regionScopeKey = regionScope.join('|');
   const isCleaned = Boolean(currentDataset?.has_cleaned);
 
   useEffect(() => {
     if (!datasetId || !isCleaned) return;
     (async () => {
       try {
-        const opts = await api.getAnalyticsFilters(datasetId, userRegion);
+        const opts = await api.getAnalyticsFilters(datasetId);
         setFilters(opts);
         if (opts.years?.length) {
           setAnioInicio(String(opts.years[0]));
@@ -44,12 +47,12 @@ export default function ExploracionDatosView({ datasetId, currentDataset, user }
         setError(err?.response?.data?.detail || 'Error al cargar filtros');
       }
     })();
-  }, [datasetId, isCleaned, userRegion]);
+  }, [datasetId, isCleaned, regionScopeKey]);
 
   useEffect(() => {
     if (!datasetId || !isCleaned) return;
     loadData();
-  }, [datasetId, isCleaned, region, anioInicio, anioFin, mes]);
+  }, [datasetId, isCleaned, region, anioInicio, anioFin, mes, regionScopeKey]);
 
   const loadData = async () => {
     setLoading(true);
@@ -58,9 +61,8 @@ export default function ExploracionDatosView({ datasetId, currentDataset, user }
       const res = await api.getExploracion(datasetId, {
         anioInicio: anioInicio || undefined,
         anioFin: anioFin || undefined,
-        region: region !== 'todos' ? region : undefined,
-        mes: mes || undefined,
-        userRegion
+        region: !isRegionLocked && region !== 'todos' ? region : undefined,
+        mes: mes || undefined
       });
       setData(res);
     } catch (err) {
@@ -102,18 +104,30 @@ export default function ExploracionDatosView({ datasetId, currentDataset, user }
           Exploración de datos
         </h1>
         <p className="page-description">
-          Filtre por región, rango de años o un mes específico para analizar ingresos, márgenes y participación por servicio.
+          Filtre por región o centro, rango de años o un mes específico para analizar ingresos, márgenes y participación por servicio.
         </p>
       </div>
 
       <div className="filters-bar card">
         <div className="filter-group">
-          <label>Región / País</label>
-          <select value={region} onChange={(e) => setRegion(e.target.value)}>
-            <option value="todos">Todas</option>
-            {(filters?.regions || []).map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
+          <label>Región / centro</label>
+          <select
+            value={isRegionLocked ? lockedRegion : region}
+            onChange={(e) => setRegion(e.target.value)}
+            disabled={isRegionLocked}
+          >
+            {isRegionLocked ? (
+              <option value={lockedRegion}>
+                {regionScope.length === 1 ? `${lockedRegion} (asignado)` : 'Alcance asignado'}
+              </option>
+            ) : (
+              <>
+                <option value="todos">Todas</option>
+                {(filters?.regions || []).map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </>
+            )}
           </select>
         </div>
         <div className="filter-group">

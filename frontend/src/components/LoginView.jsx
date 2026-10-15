@@ -95,7 +95,7 @@ export default function LoginView({ onLoginSuccess }) {
 
         <div className="login-hint">
           <Shield size={14} />
-          <span>El acceso a pantallas y datos depende del rol asignado.</span>
+          <span>El acceso a pantallas y datos depende del rol y la región o centro asignados.</span>
         </div>
       </div>
     </div>

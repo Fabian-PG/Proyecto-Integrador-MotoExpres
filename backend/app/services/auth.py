@@ -1,8 +1,67 @@
 """Authentication and access-log services for the BI platform."""
+import base64
+import hashlib
+import hmac
+import json
+import os
+import secrets
+import time
 from typing import Optional
 from sqlalchemy.orm import Session
 from fastapi import HTTPException
 from app.models.usuario import Usuario, AccesoLog
+
+_TOKEN_SECRET = os.environ.get("BI_AUTH_SECRET") or secrets.token_urlsafe(32)
+_TOKEN_TTL_SECONDS = 8 * 60 * 60
+
+
+def create_access_token(user_id: int) -> str:
+    """Creates a signed, expiring token for authenticated API requests."""
+    payload = base64.urlsafe_b64encode(
+        json.dumps(
+            {"sub": user_id, "exp": int(time.time()) + _TOKEN_TTL_SECONDS},
+            separators=(",", ":")
+        ).encode("utf-8")
+    ).decode("ascii").rstrip("=")
+    signature = hmac.new(
+        _TOKEN_SECRET.encode("utf-8"), payload.encode("ascii"), hashlib.sha256
+    ).digest()
+    encoded_signature = base64.urlsafe_b64encode(signature).decode("ascii").rstrip("=")
+    return f"{payload}.{encoded_signature}"
+
+
+def get_access_token_user_id(token: str) -> Optional[int]:
+    """Returns the user id from a valid token, or None for invalid/expired tokens."""
+    try:
+        payload, encoded_signature = token.split(".", 1)
+        expected_signature = hmac.new(
+            _TOKEN_SECRET.encode("utf-8"), payload.encode("ascii"), hashlib.sha256
+        ).digest()
+        signature = base64.urlsafe_b64decode(
+            encoded_signature + "=" * (-len(encoded_signature) % 4)
+        )
+        if not hmac.compare_digest(signature, expected_signature):
+            return None
+
+        payload_bytes = base64.urlsafe_b64decode(payload + "=" * (-len(payload) % 4))
+        claims = json.loads(payload_bytes.decode("utf-8"))
+        user_id = claims["sub"]
+        if not isinstance(user_id, int) or claims["exp"] <= int(time.time()):
+            return None
+        return user_id
+    except (AttributeError, KeyError, TypeError, ValueError, UnicodeDecodeError, json.JSONDecodeError):
+        return None
+
+
+def get_user_region_scope(user: Usuario) -> list[str]:
+    """Combines the user's region and data restrictions without widening access."""
+    unrestricted = {"todos", "todo", "all", "*"}
+    scopes = []
+    for value in (user.region, user.datos):
+        if value and value.strip().lower() not in unrestricted:
+            if value.strip().casefold() not in {scope.casefold() for scope in scopes}:
+                scopes.append(value.strip())
+    return scopes
 
 
 def authenticate_user(
@@ -38,7 +97,8 @@ def authenticate_user(
         "region": user.region,
         "pantallas": user.pantallas,
         "datos": user.datos,
-        "activo": user.activo
+        "activo": user.activo,
+        "access_token": create_access_token(user.id)
     }
 
 

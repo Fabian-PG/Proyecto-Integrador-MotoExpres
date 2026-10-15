@@ -27,10 +27,14 @@ def _require_cleaned_dataset(dataset_id: str, db: Session) -> DatasetMeta:
     return meta
 
 
-def _load_prepared(dataset_id: str, db: Session):
+def _load_prepared(dataset_id: str, db: Session, user_region=None):
     meta = _require_cleaned_dataset(dataset_id, db)
-    # Prefer anonymized if available, else cleaned
-    table_type = "anonymized" if meta.anonymized_table_name else "cleaned"
+    # Restricted users need the original region values to enforce their scope.
+    table_type = (
+        "cleaned" if user_region
+        else "anonymized" if meta.anonymized_table_name
+        else "cleaned"
+    )
     try:
         df = get_dataset_dataframe(dataset_id, table_type=table_type)
     except Exception:
@@ -39,9 +43,31 @@ def _load_prepared(dataset_id: str, db: Session):
     return meta, prepared, mapping
 
 
+def get_available_centers(db: Session) -> list[str]:
+    """Returns distinct region/center values found across the stored datasets."""
+    datasets = db.query(DatasetMeta).order_by(DatasetMeta.created_at.desc()).all()
+    centers = set()
+    for meta in datasets:
+        table_type = (
+            "anonymized" if meta.anonymized_table_name
+            else "cleaned" if meta.cleaned_table_name
+            else "raw"
+        )
+        frame = get_dataset_dataframe(meta.id, table_type=table_type)
+        prepared, mapping = prepare_analytics_frame(frame)
+        if not mapping.get("region"):
+            continue
+        centers.update(
+            value.strip()
+            for value in prepared["_region"].dropna().astype(str).unique()
+            if value.strip() and value.strip().casefold() not in {"sin región", "nan"}
+        )
+    return sorted(centers, key=str.casefold)
+
+
 def get_filter_options(dataset_id: str, db: Session, user_region: str = None) -> dict:
     """Returns available years and regions for filter controls."""
-    _, prepared, mapping = _load_prepared(dataset_id, db)
+    _, prepared, mapping = _load_prepared(dataset_id, db, user_region=user_region)
     scoped = apply_filters(prepared, user_region=user_region)
 
     years = sorted([int(y) for y in scoped["_anio"].dropna().unique().tolist()])
@@ -82,7 +108,7 @@ def build_tablero(
     user_region=None
 ) -> dict:
     """Builds KPIs and chart series for Tablero General."""
-    meta, prepared, mapping = _load_prepared(dataset_id, db)
+    meta, prepared, mapping = _load_prepared(dataset_id, db, user_region=user_region)
     filtered = apply_filters(
         prepared,
         anio_inicio=anio_inicio,
@@ -98,8 +124,29 @@ def build_tablero(
     efectivos = int(filtered["_efectivo"].sum())
     efectivo_label = filtered["_efectivo_label"].iloc[0] if len(filtered) else "Datos efectivos"
     ticket_promedio = ingresos / ordenes if ordenes else 0
-    margen_pct = (margen / ingresos * 100) if ingresos else 0
+    margen_pct = (
+        ((ingresos - costo) / ingresos * 100)
+        if ingresos and mapping.get("cost")
+        else None
+    )
     cancelaciones = int(filtered["_cancelado"].sum())
+    delivery_records = filtered[filtered["_entrega_reportada"]]
+    tasa_entregas_a_tiempo_pct = (
+        float(delivery_records["_entrega_a_tiempo"].mean() * 100)
+        if mapping.get("delivery_on_time") and len(delivery_records)
+        else None
+    )
+    devoluciones = _unique_orders(filtered[filtered["_devuelto"]])
+    orders_for_return_rate = (
+        _unique_orders(filtered[~filtered["_cancelado"]])
+        if mapping.get("status")
+        else ordenes
+    )
+    tasa_devolucion_pct = (
+        devoluciones / orders_for_return_rate * 100
+        if (mapping.get("return") or mapping.get("status")) and orders_for_return_rate
+        else None
+    )
 
     # Line chart: ingresos por mes (sorted chronologically)
     monthly = (
@@ -155,6 +202,21 @@ def build_tablero(
             "ordenes": ordenes,
             "margen": round(margen, 2),
             "margen_pct": round(margen_pct, 2),
+            "tasa_entregas_a_tiempo_pct": (
+                round(tasa_entregas_a_tiempo_pct, 2)
+                if tasa_entregas_a_tiempo_pct is not None else None
+            ),
+            "entregas_a_tiempo": int(delivery_records["_entrega_a_tiempo"].sum()),
+            "entregas_evaluadas": int(len(delivery_records)),
+            "tasa_devolucion_pct": (
+                round(tasa_devolucion_pct, 2)
+                if tasa_devolucion_pct is not None else None
+            ),
+            "devoluciones": devoluciones,
+            "ordenes_evaluadas_devolucion": orders_for_return_rate,
+            "has_cost_data": bool(mapping.get("cost")),
+            "has_on_time_delivery_data": bool(mapping.get("delivery_on_time")),
+            "has_return_data": bool(mapping.get("return") or mapping.get("status")),
             "datos_efectivos": efectivos,
             "efectivo_label": efectivo_label,
             "ticket_promedio": round(ticket_promedio, 2),
@@ -179,7 +241,7 @@ def build_exploracion(
     user_region=None
 ) -> dict:
     """Builds exploration metrics, service bars and participation table."""
-    meta, prepared, mapping = _load_prepared(dataset_id, db)
+    meta, prepared, mapping = _load_prepared(dataset_id, db, user_region=user_region)
     filtered = apply_filters(
         prepared,
         anio_inicio=anio_inicio,
@@ -255,7 +317,7 @@ def build_alertas(
     user_region=None
 ) -> dict:
     """Detects order volume and margin anomalies with explanatory messages."""
-    meta, prepared, mapping = _load_prepared(dataset_id, db)
+    meta, prepared, mapping = _load_prepared(dataset_id, db, user_region=user_region)
     filtered = apply_filters(
         prepared,
         anio_inicio=anio_inicio,

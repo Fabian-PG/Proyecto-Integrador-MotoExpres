@@ -1,29 +1,34 @@
 import React, { useState, useEffect } from 'react';
 import { Stethoscope, CheckCircle2, ShieldAlert, Wrench, History, Table as TableIcon } from 'lucide-react';
-import { api } from '../api/client';
+import { api, getRegionScope } from '../api/client';
 
-export default function DiagnosticoLimpiezaView({ datasetId, onCleanCompleted }) {
+export default function DiagnosticoLimpiezaView({ datasetId, onCleanCompleted, user }) {
   const [loading, setLoading] = useState(false);
   const [diagnosis, setDiagnosis] = useState(null);
+  const [error, setError] = useState('');
   const [cleaning, setCleaning] = useState(false);
   const [cleaningResult, setCleaningResult] = useState(null);
   const [bitacora, setBitacora] = useState([]);
   const [activeTab, setActiveTab] = useState('findings'); // 'findings' or 'bitacora'
+  const regionScopeKey = getRegionScope(user).join('|');
+  const isRegionRestricted = regionScopeKey.length > 0;
 
   useEffect(() => {
     if (datasetId) {
       loadDiagnosis();
-      loadBitacora();
+      if (!isRegionRestricted) loadBitacora();
+      else setBitacora([]);
     }
-  }, [datasetId]);
+  }, [datasetId, regionScopeKey]);
 
   const loadDiagnosis = async () => {
     setLoading(true);
     try {
       const data = await api.getQualityDiagnosis(datasetId);
       setDiagnosis(data);
+      setError('');
     } catch (err) {
-      console.error(err);
+      setError(err?.response?.data?.detail || 'No se pudo cargar el diagnóstico de calidad');
     } finally {
       setLoading(false);
     }
@@ -34,7 +39,7 @@ export default function DiagnosticoLimpiezaView({ datasetId, onCleanCompleted })
       const logs = await api.getBitacoraLogs(datasetId);
       setBitacora(logs);
     } catch (err) {
-      console.error(err);
+      setError(err?.response?.data?.detail || 'No se pudo cargar la bitácora');
     }
   };
 
@@ -48,7 +53,7 @@ export default function DiagnosticoLimpiezaView({ datasetId, onCleanCompleted })
       setActiveTab('bitacora');
       if (onCleanCompleted) onCleanCompleted();
     } catch (err) {
-      console.error(err);
+      setError(err?.response?.data?.detail || 'No se pudo ejecutar la limpieza');
     } finally {
       setCleaning(false);
     }
@@ -74,6 +79,12 @@ export default function DiagnosticoLimpiezaView({ datasetId, onCleanCompleted })
           Evaluación automatizada de las 6 dimensiones de calidad de información para Inteligencia de Negocios (Exactitud, Completitud, Consistencia, Actualidad, Validez y Unicidad). Al ejecutar la corrección, el sistema genera una nueva base de datos limpia y registra la bitácora de auditoría.
         </p>
       </div>
+
+      {error && (
+        <div className="card" style={{ borderColor: 'var(--accent-crimson)', color: '#FCA5A5' }}>
+          {error}
+        </div>
+      )}
 
       {loading ? (
         <div className="card" style={{ textAlign: 'center', padding: '40px' }}>
@@ -119,16 +130,22 @@ export default function DiagnosticoLimpiezaView({ datasetId, onCleanCompleted })
                 </p>
               </div>
 
-              <button className="btn btn-primary" onClick={handleRunCleaning} disabled={cleaning}>
-                {cleaning ? (
-                  <span>Procesando Limpieza...</span>
-                ) : (
-                  <>
-                    <CheckCircle2 size={16} />
-                    <span>Ejecutar Limpieza y Crear BD Limpia</span>
-                  </>
-                )}
-              </button>
+              {!isRegionRestricted ? (
+                <button className="btn btn-primary" onClick={handleRunCleaning} disabled={cleaning}>
+                  {cleaning ? (
+                    <span>Procesando Limpieza...</span>
+                  ) : (
+                    <>
+                      <CheckCircle2 size={16} />
+                      <span>Ejecutar Limpieza y Crear BD Limpia</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <p className="kpi-subtext">
+                  La limpieza y la bitácora requieren acceso a todos los centros.
+                </p>
+              )}
             </div>
 
             {cleaningResult && (
@@ -150,14 +167,16 @@ export default function DiagnosticoLimpiezaView({ datasetId, onCleanCompleted })
                 <span>Hallazgos por Dimensión ({diagnosis.findings?.length || 0})</span>
               </button>
 
-              <button
-                className={`btn ${activeTab === 'bitacora' ? 'btn-primary' : 'btn-secondary'}`}
-                onClick={() => setActiveTab('bitacora')}
-                style={{ padding: '8px 16px', fontSize: '13px' }}
-              >
-                <History size={14} />
-                <span>Bitácora de Auditoría ({bitacora.length})</span>
-              </button>
+              {!isRegionRestricted && (
+                <button
+                  className={`btn ${activeTab === 'bitacora' ? 'btn-primary' : 'btn-secondary'}`}
+                  onClick={() => setActiveTab('bitacora')}
+                  style={{ padding: '8px 16px', fontSize: '13px' }}
+                >
+                  <History size={14} />
+                  <span>Bitácora de Auditoría ({bitacora.length})</span>
+                </button>
+              )}
             </div>
 
             {/* View 1: Findings Table */}

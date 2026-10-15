@@ -58,13 +58,13 @@ export default function AccesosView() {
         <div className="card" style={{ borderColor: 'var(--accent-crimson)', color: '#FCA5A5' }}>{error}</div>
       )}
 
-      <div className="card">
+      <div className="card accesos-history-card">
         <div className="card-title">Historial de sesiones ({logs.length})</div>
         {loading && logs.length === 0 ? (
           <p style={{ color: 'var(--text-muted)' }}>Cargando…</p>
         ) : (
-          <div className="table-container">
-            <table className="data-table">
+          <div className="table-container accesos-history-table-container">
+            <table className="data-table accesos-history-table">
               <thead>
                 <tr>
                   <th>Fecha y hora</th>
@@ -88,7 +88,13 @@ export default function AccesosView() {
                     </td>
                     <td>{log.nombre_usuario}</td>
                     <td>{log.rol}</td>
-                    <td style={{ maxWidth: 280, whiteSpace: 'normal' }}>{log.pantallas || '—'}</td>
+                    <td className="accesos-pantallas-cell">
+                      {String(log.pantallas || '—')
+                        .split(',')
+                        .map((pantalla) => pantalla.trim())
+                        .filter(Boolean)
+                        .map((pantalla) => <span key={pantalla}>{pantalla}</span>)}
+                    </td>
                     <td>{log.datos || '—'}</td>
                     <td>{log.ip || '—'}</td>
                   </tr>

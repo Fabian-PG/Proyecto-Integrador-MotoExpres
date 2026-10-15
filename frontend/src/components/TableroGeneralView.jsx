@@ -1,13 +1,13 @@
 import React, { useEffect, useState, useMemo } from 'react';
 import {
   LayoutDashboard, DollarSign, ShoppingCart, TrendingUp, CheckCircle2,
-  Receipt, MapPin, Ban, AlertTriangle
+  Receipt, MapPin, Ban, AlertTriangle, Percent, RotateCcw
 } from 'lucide-react';
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   BarChart, Bar, Cell
 } from 'recharts';
-import { api } from '../api/client';
+import { api, getRegionScope } from '../api/client';
 
 const BAR_COLORS = ['#2563EB', '#D97706', '#059669', '#7C3AED', '#DC2626', '#0891B2', '#CA8A04'];
 
@@ -41,7 +41,10 @@ export default function TableroGeneralView({ datasetId, currentDataset, user }) 
   const [anioFin, setAnioFin] = useState('');
   const [region, setRegion] = useState('todos');
 
-  const userRegion = user?.datos && user.datos !== 'todos' ? user.datos : null;
+  const regionScope = getRegionScope(user);
+  const isRegionLocked = regionScope.length > 0;
+  const lockedRegion = regionScope.length === 1 ? regionScope[0] : '__locked_scope__';
+  const regionScopeKey = regionScope.join('|');
   const isCleaned = Boolean(currentDataset?.has_cleaned);
 
   useEffect(() => {
@@ -52,7 +55,7 @@ export default function TableroGeneralView({ datasetId, currentDataset, user }) 
     }
     (async () => {
       try {
-        const opts = await api.getAnalyticsFilters(datasetId, userRegion);
+        const opts = await api.getAnalyticsFilters(datasetId);
         setFilters(opts);
         if (opts.years?.length) {
           setAnioInicio(String(opts.years[0]));
@@ -62,12 +65,12 @@ export default function TableroGeneralView({ datasetId, currentDataset, user }) 
         setError(err?.response?.data?.detail || 'No se pudieron cargar los filtros');
       }
     })();
-  }, [datasetId, isCleaned, userRegion]);
+  }, [datasetId, isCleaned, regionScopeKey]);
 
   useEffect(() => {
     if (!datasetId || !isCleaned) return;
     loadTablero();
-  }, [datasetId, isCleaned, anioInicio, anioFin, region]);
+  }, [datasetId, isCleaned, anioInicio, anioFin, region, regionScopeKey]);
 
   const loadTablero = async () => {
     setLoading(true);
@@ -76,8 +79,7 @@ export default function TableroGeneralView({ datasetId, currentDataset, user }) 
       const res = await api.getTablero(datasetId, {
         anioInicio: anioInicio || undefined,
         anioFin: anioFin || undefined,
-        region: region !== 'todos' ? region : undefined,
-        userRegion
+        region: !isRegionLocked && region !== 'todos' ? region : undefined
       });
       setData(res);
     } catch (err) {
@@ -128,7 +130,7 @@ export default function TableroGeneralView({ datasetId, currentDataset, user }) 
           Tablero general
         </h1>
         <p className="page-description">
-          KPIs y tendencias de la base de datos limpia. Filtre por rango de años y región.
+          KPIs y tendencias de la base de datos limpia. Filtre por rango de años y región o centro.
         </p>
       </div>
 
@@ -152,12 +154,24 @@ export default function TableroGeneralView({ datasetId, currentDataset, user }) 
           </select>
         </div>
         <div className="filter-group">
-          <label>Región / País</label>
-          <select value={region} onChange={(e) => setRegion(e.target.value)}>
-            <option value="todos">Todas</option>
-            {(filters?.regions || []).map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
+          <label>Región / centro</label>
+          <select
+            value={isRegionLocked ? lockedRegion : region}
+            onChange={(e) => setRegion(e.target.value)}
+            disabled={isRegionLocked}
+          >
+            {isRegionLocked ? (
+              <option value={lockedRegion}>
+                {regionScope.length === 1 ? `${lockedRegion} (asignado)` : 'Alcance asignado'}
+              </option>
+            ) : (
+              <>
+                <option value="todos">Todas</option>
+                {(filters?.regions || []).map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </>
+            )}
           </select>
         </div>
       </div>
@@ -186,7 +200,11 @@ export default function TableroGeneralView({ datasetId, currentDataset, user }) 
             <div className="kpi-card">
               <div className="kpi-label"><TrendingUp size={14} /> Margen de ingresos</div>
               <div className="kpi-value">{formatMoney(kpis.margen)}</div>
-              <div className="kpi-subtext">{kpis.margen_pct}% del ingreso (ingreso − costo)</div>
+              <div className="kpi-subtext">
+                {kpis.margen_pct == null
+                  ? 'Margen no disponible: falta una columna de costos'
+                  : `${kpis.margen_pct}% del ingreso (ingresos − costos)`}
+              </div>
             </div>
             <div className="kpi-card">
               <div className="kpi-label"><CheckCircle2 size={14} /> {kpis.efectivo_label}</div>
@@ -197,8 +215,46 @@ export default function TableroGeneralView({ datasetId, currentDataset, user }) 
 
           <div className="grid-3" style={{ marginBottom: 20 }}>
             <div className="kpi-card">
+              <div className="kpi-label"><Percent size={14} /> Margen porcentual</div>
+              <div className="kpi-value" style={{ fontSize: 22 }}>
+                {kpis.margen_pct == null ? 'N/D' : `${kpis.margen_pct}%`}
+              </div>
+              <div className="kpi-subtext">
+                (Ingresos − costos) ÷ ingresos
+              </div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label"><CheckCircle2 size={14} /> Entregas a tiempo</div>
+              <div className="kpi-value" style={{ fontSize: 22 }}>
+                {kpis.tasa_entregas_a_tiempo_pct == null
+                  ? 'N/D'
+                  : `${kpis.tasa_entregas_a_tiempo_pct}%`}
+              </div>
+              <div className="kpi-subtext">
+                {kpis.tasa_entregas_a_tiempo_pct == null
+                  ? 'No hay una columna de puntualidad válida'
+                  : `${formatNumber(kpis.entregas_a_tiempo)} de ${formatNumber(kpis.entregas_evaluadas)} entregas evaluadas`}
+              </div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label"><RotateCcw size={14} /> Tasa de devolución</div>
+              <div className="kpi-value" style={{ fontSize: 22 }}>
+                {kpis.tasa_devolucion_pct == null
+                  ? 'N/D'
+                  : `${kpis.tasa_devolucion_pct}%`}
+              </div>
+              <div className="kpi-subtext">
+                {kpis.tasa_devolucion_pct == null
+                  ? 'No se detectó una columna de devoluciones/estado'
+                  : `${formatNumber(kpis.devoluciones)} devoluciones de ${formatNumber(kpis.ordenes_evaluadas_devolucion)} órdenes no canceladas`}
+              </div>
+            </div>
+          </div>
+
+          <div className="grid-3" style={{ marginBottom: 20 }}>
+            <div className="kpi-card">
               <div className="kpi-label"><Receipt size={14} /> Ticket promedio</div>
-              <div className="kpi-value" style={{ fontSize: 22 }}>{formatMoney(kpis.ticket_promedio)}</div>
+              <div className="kpi-value" style={{ fontSize: 22 }}>{formatNumber(kpis.ticket_promedio)}</div>
             </div>
             <div className="kpi-card">
               <div className="kpi-label"><MapPin size={14} /> Regiones activas</div>

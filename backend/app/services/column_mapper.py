@@ -35,10 +35,18 @@ DELIVERY_HINTS = [
     "entrega_a_tiempo", "a_tiempo", "entrega", "entregado", "ontime",
     "on_time", "puntual", "delivery", "cumplimiento"
 ]
+ON_TIME_DELIVERY_HINTS = [
+    "entrega_a_tiempo", "a_tiempo", "ontime", "on_time", "puntual",
+    "entrega_puntual", "cumplimiento_entrega"
+]
+RETURN_HINTS = ["devolucion", "devuelto", "devoluciones", "returned", "return", "refund", "reembolso"]
 ACTIVE_HINTS = ["plan_activo", "activo", "activa", "active", "estado_plan"]
+RETURN_VALUES = {
+    "devuelta", "devuelto", "devolucion", "devolución", "devoluciones",
+    "returned", "return", "refunded", "refund", "reembolsado", "reembolsada"
+}
 CANCEL_VALUES = {
-    "cancelado", "cancelada", "cancelled", "canceled", "anulado", "anulada",
-    "devuelta", "devuelto", "returned"
+    "cancelado", "cancelada", "cancelled", "canceled", "anulado", "anulada"
 }
 
 
@@ -125,6 +133,8 @@ def detect_columns(df: pd.DataFrame) -> dict:
         "order_id": _find_column(cols, ORDER_HINTS),
         "status": status,
         "delivery": _find_column(cols, DELIVERY_HINTS),
+        "delivery_on_time": _find_column(cols, ON_TIME_DELIVERY_HINTS),
+        "return": _find_column(cols, RETURN_HINTS),
         "active": _find_column(cols, ACTIVE_HINTS),
     }
 
@@ -165,7 +175,7 @@ def prepare_analytics_frame(df: pd.DataFrame) -> tuple:
     if mapping["cost"]:
         work["_costo"] = pd.to_numeric(work[mapping["cost"]], errors="coerce").fillna(0)
     else:
-        work["_costo"] = work["_ingresos"] * 0.60
+        work["_costo"] = 0.0
 
     work["_margen"] = work["_ingresos"] - work["_costo"]
 
@@ -195,24 +205,55 @@ def prepare_analytics_frame(df: pd.DataFrame) -> tuple:
     if mapping["status"]:
         status_norm = work[mapping["status"]].astype(str).str.lower().str.strip()
         work["_cancelado"] = status_norm.isin(CANCEL_VALUES)
+        work["_devuelto"] = status_norm.isin(RETURN_VALUES)
     else:
         work["_cancelado"] = False
+        work["_devuelto"] = False
+    if mapping["return"]:
+        return_norm = work[mapping["return"]].astype(str).str.lower().str.strip()
+        return_values = RETURN_VALUES | {
+            "1", "1.0", "true", "si", "sí", "yes", "y", "x"
+        }
+        work["_devuelto"] |= return_norm.isin(return_values)
 
-    if mapping["delivery"]:
-        deliv = work[mapping["delivery"]]
+    if mapping["delivery_on_time"]:
+        deliv = work[mapping["delivery_on_time"]]
+        deliv_norm = deliv.astype(str).str.lower().str.strip()
         work["_efectivo"] = deliv.astype(str).str.lower().isin(
             ["1", "true", "si", "sí", "yes", "a tiempo", "ontime"]
         )
         work["_efectivo_label"] = "Entregas a tiempo"
+        work["_entrega_reportada"] = deliv_norm.isin(
+            ["1", "1.0", "0", "0.0", "true", "false", "si", "sí", "no", "yes",
+             "a tiempo", "ontime", "on time", "tarde", "retrasado", "retrasada",
+             "fuera de tiempo", "no a tiempo", "puntual", "cumplido", "cumplida"]
+        )
+        work["_entrega_a_tiempo"] = deliv_norm.isin(
+            ["1", "1.0", "true", "si", "sí", "yes", "a tiempo", "ontime", "on time",
+             "puntual", "cumplido", "cumplida"]
+        )
+        work["_entrega_reportada"] &= ~work["_cancelado"] & ~work["_devuelto"]
+    elif mapping["delivery"]:
+        deliv = work[mapping["delivery"]]
+        work["_efectivo"] = deliv.astype(str).str.lower().isin(
+            ["1", "true", "si", "sí", "yes", "a tiempo", "ontime"]
+        )
+        work["_efectivo_label"] = "Entregas registradas"
+        work["_entrega_reportada"] = False
+        work["_entrega_a_tiempo"] = False
     elif mapping["active"]:
         act = work[mapping["active"]]
         work["_efectivo"] = act.astype(str).str.lower().isin(
             ["1", "true", "si", "sí", "yes", "activo", "activa", "active"]
         )
         work["_efectivo_label"] = "Planes activos"
+        work["_entrega_reportada"] = False
+        work["_entrega_a_tiempo"] = False
     else:
         work["_efectivo"] = (~work["_cancelado"]) & (work["_ingresos"] > 0)
         work["_efectivo_label"] = "Registros efectivos"
+        work["_entrega_reportada"] = False
+        work["_entrega_a_tiempo"] = False
 
     return work, mapping
 
@@ -229,10 +270,17 @@ def apply_filters(
     filtered = df.copy()
 
     if user_region and str(user_region).lower() not in ("todos", "todo", "all", "*"):
-        filtered = filtered[filtered["_region"].astype(str).str.lower() == str(user_region).lower()]
+        user_regions = user_region if isinstance(user_region, (list, tuple, set)) else [user_region]
+        allowed_regions = {str(value).strip().casefold() for value in user_regions}
+        filtered = filtered[
+            filtered["_region"].astype(str).str.strip().str.casefold().isin(allowed_regions)
+        ]
 
     if region and str(region).lower() not in ("todos", "todo", "all", ""):
-        filtered = filtered[filtered["_region"].astype(str) == str(region)]
+        filtered = filtered[
+            filtered["_region"].astype(str).str.strip().str.casefold()
+            == str(region).strip().casefold()
+        ]
 
     if anio_inicio is not None:
         filtered = filtered[(filtered["_anio"].isna()) | (filtered["_anio"] >= int(anio_inicio))]

@@ -38,6 +38,7 @@ const emptyForm = {
 
 export default function CrearUsuariosView() {
   const [usuarios, setUsuarios] = useState([]);
+  const [centros, setCentros] = useState([]);
   const [form, setForm] = useState(emptyForm);
   const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -58,6 +59,11 @@ export default function CrearUsuariosView() {
 
   useEffect(() => {
     loadUsers();
+    api.getAnalyticsCenters()
+      .then(setCentros)
+      .catch((err) => {
+        setError(err?.response?.data?.detail || 'No se pudieron cargar las regiones y centros');
+      });
   }, []);
 
   const handleRolChange = (rol) => {
@@ -120,7 +126,7 @@ export default function CrearUsuariosView() {
           Crear usuarios
         </h1>
         <p className="page-description">
-          Registre usuarios con rol, región, pantallas permitidas y alcance de datos.
+          Registre usuarios con rol, región o centro, pantallas permitidas y alcance de datos.
         </p>
       </div>
 
@@ -163,13 +169,17 @@ export default function CrearUsuariosView() {
             </label>
 
             <label className="login-label">
-              Región
-              <input
+              Región / centro
+              <select
                 className="login-input"
                 value={form.region}
                 onChange={(e) => setForm({ ...form, region: e.target.value })}
-                placeholder="todos o nombre de región"
-              />
+              >
+                <option value="todos">Todos los centros</option>
+                {centros.map((centro) => (
+                  <option key={centro} value={centro}>{centro}</option>
+                ))}
+              </select>
             </label>
 
             <label className="login-label">
@@ -222,7 +232,7 @@ export default function CrearUsuariosView() {
             <p style={{ color: 'var(--text-muted)' }}>Cargando…</p>
           ) : (
             <div className="table-container">
-              <table className="data-table">
+              <table className="data-table usuarios-table">
                 <thead>
                   <tr>
                     <th>Usuario</th>
@@ -239,7 +249,13 @@ export default function CrearUsuariosView() {
                       <td>{u.rol}</td>
                       <td>{u.region}</td>
                       <td>{u.datos}</td>
-                      <td style={{ maxWidth: 220, whiteSpace: 'normal', fontSize: 12 }}>{u.pantallas}</td>
+                      <td className="usuarios-pantallas-cell">
+                        {String(u.pantallas || '')
+                          .split(',')
+                          .map((pantalla) => pantalla.trim())
+                          .filter(Boolean)
+                          .map((pantalla) => <span key={pantalla}>{pantalla}</span>)}
+                      </td>
                     </tr>
                   ))}
                 </tbody>

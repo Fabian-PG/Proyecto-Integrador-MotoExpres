@@ -1,4 +1,5 @@
 import React from 'react';
+import { getRegionScope } from '../api/client';
 import {
   Database, Stethoscope, Network, ShieldCheck, Layers,
   LayoutDashboard, Search, BellRing, KeyRound, UserPlus,
@@ -76,6 +77,10 @@ function parsePantallas(pantallas) {
 
 export default function Sidebar({ activeSubtitle, setActiveSubtitle, user, onLogout }) {
   const allowed = parsePantallas(user?.pantallas);
+  if (getRegionScope(user).length > 0) {
+    allowed.delete('accesos');
+    allowed.delete('crear_usuarios');
+  }
   const hito1 = HITO1_ITEMS.filter((i) => allowed.has(i.id));
   const hito2 = HITO2_ITEMS.filter((i) => allowed.has(i.id));
 

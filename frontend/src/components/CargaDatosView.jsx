@@ -1,12 +1,13 @@
 import React, { useState } from 'react';
 import { Upload, CheckCircle2, AlertTriangle, FileSpreadsheet, Eye, RefreshCw, Database } from 'lucide-react';
-import { api } from '../api/client';
+import { api, getRegionScope } from '../api/client';
 
-export default function CargaDatosView({ onUploadSuccess, currentDataset, previewData, onRefresh }) {
+export default function CargaDatosView({ onUploadSuccess, currentDataset, previewData, onRefresh, user }) {
   const [uploading, setUploading] = useState(false);
   const [progress, setProgress] = useState(0);
   const [statusMessage, setStatusMessage] = useState(null);
   const [error, setError] = useState(null);
+  const isRegionRestricted = getRegionScope(user).length > 0;
 
   const handleFileUpload = async (e) => {
     const file = e.target.files[0];
@@ -49,7 +50,9 @@ export default function CargaDatosView({ onUploadSuccess, currentDataset, previe
       <div className="page-header">
         <h1 className="page-title">Hito 1: Carga de Datos</h1>
         <p className="page-description">
-          Sube archivos de datos en formato CSV o XLSX. El sistema valida la información, detecta cargas duplicadas vía hash SHA256 y genera una base de datos aislada preservando los datos originales.
+          {isRegionRestricted
+            ? 'La vista previa muestra únicamente filas de la región o centro asignado.'
+            : 'Sube archivos de datos en formato CSV o XLSX. El sistema valida la información, detecta cargas duplicadas vía hash SHA256 y genera una base de datos aislada preservando los datos originales.'}
         </p>
       </div>
 
@@ -69,9 +72,11 @@ export default function CargaDatosView({ onUploadSuccess, currentDataset, previe
             padding: '40px',
             textAlign: 'center',
             backgroundColor: 'rgba(15, 23, 42, 0.5)',
-            cursor: 'pointer'
+            cursor: isRegionRestricted ? 'not-allowed' : 'pointer'
           }}
-          onClick={() => document.getElementById('file-input-trigger').click()}
+          onClick={() => {
+            if (!isRegionRestricted) document.getElementById('file-input-trigger').click();
+          }}
         >
           <input
             id="file-input-trigger"
@@ -79,6 +84,7 @@ export default function CargaDatosView({ onUploadSuccess, currentDataset, previe
             accept=".csv, .xlsx, .xls"
             style={{ display: 'none' }}
             onChange={handleFileUpload}
+            disabled={isRegionRestricted}
           />
           <FileSpreadsheet size={48} style={{ color: 'var(--accent-gold)', marginBottom: '16px' }} />
           <h3 style={{ fontSize: '18px', marginBottom: '8px' }}>Arrastra o selecciona un archivo .csv o .xlsx</h3>
@@ -86,10 +92,15 @@ export default function CargaDatosView({ onUploadSuccess, currentDataset, previe
             Límite máximo recomendado: 50MB por archivo. El sistema verificará la existencia previa de la firma SHA256.
           </p>
 
-          <button className="btn btn-primary" style={{ marginTop: '20px' }}>
+          <button className="btn btn-primary" style={{ marginTop: '20px' }} disabled={isRegionRestricted}>
             <Upload size={16} />
             <span>Seleccionar Archivo</span>
           </button>
+          {isRegionRestricted && (
+            <p style={{ marginTop: 12, color: 'var(--text-muted)' }}>
+              La carga está disponible solo para usuarios con acceso a todos los centros.
+            </p>
+          )}
         </div>
 
         {/* Real-time Progress Bar */}
@@ -171,7 +182,9 @@ export default function CargaDatosView({ onUploadSuccess, currentDataset, previe
             </div>
             <div className="kpi-card">
               <div className="kpi-label">Total de Registros</div>
-              <div className="kpi-value">{previewData.dataset_info?.total_rows || currentDataset.total_rows}</div>
+              <div className="kpi-value">
+                {previewData.dataset_info?.total_rows ?? currentDataset.total_rows ?? '—'}
+              </div>
               <div className="kpi-subtext">Filas importadas correctamente</div>
             </div>
             <div className="kpi-card">

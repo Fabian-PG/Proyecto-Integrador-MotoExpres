@@ -25,17 +25,21 @@ export default function TopDatasetNav({ datasets, activeDatasetId, setActiveData
               >
                 <FileSpreadsheet size={14} style={{ color: isActive ? 'var(--accent-gold)' : 'var(--text-muted)' }} />
                 <span>{ds.original_filename}</span>
-                <span className="tab-badge">{ds.total_rows} filas</span>
+                {ds.total_rows != null && (
+                  <span className="tab-badge">{ds.total_rows} filas</span>
+                )}
               </div>
             );
           })
         )}
       </div>
 
-      <button className="btn btn-secondary" onClick={onAddNewClick} style={{ padding: '6px 12px', fontSize: '12px' }}>
-        <PlusCircle size={14} />
-        <span>Nueva BD</span>
-      </button>
+      {onAddNewClick && (
+        <button className="btn btn-secondary" onClick={onAddNewClick} style={{ padding: '6px 12px', fontSize: '12px' }}>
+          <PlusCircle size={14} />
+          <span>Nueva BD</span>
+        </button>
+      )}
     </header>
   );
 }

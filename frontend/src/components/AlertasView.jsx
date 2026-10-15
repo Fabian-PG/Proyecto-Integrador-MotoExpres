@@ -6,7 +6,7 @@ import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
   ReferenceLine, Cell, ComposedChart, Line
 } from 'recharts';
-import { api } from '../api/client';
+import { api, getRegionScope } from '../api/client';
 
 function formatMoney(n) {
   return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(n || 0);
@@ -28,14 +28,17 @@ export default function AlertasView({ datasetId, currentDataset, user }) {
   const [region, setRegion] = useState('todos');
   const [filters, setFilters] = useState(null);
 
-  const userRegion = user?.datos && user.datos !== 'todos' ? user.datos : null;
+  const regionScope = getRegionScope(user);
+  const isRegionLocked = regionScope.length > 0;
+  const lockedRegion = regionScope.length === 1 ? regionScope[0] : '__locked_scope__';
+  const regionScopeKey = regionScope.join('|');
   const isCleaned = Boolean(currentDataset?.has_cleaned);
 
   useEffect(() => {
     if (!datasetId || !isCleaned) return;
     (async () => {
       try {
-        const opts = await api.getAnalyticsFilters(datasetId, userRegion);
+        const opts = await api.getAnalyticsFilters(datasetId);
         setFilters(opts);
         if (opts.years?.length) {
           setAnioInicio(String(opts.years[0]));
@@ -45,12 +48,12 @@ export default function AlertasView({ datasetId, currentDataset, user }) {
         setError(err?.response?.data?.detail || 'Error al cargar filtros');
       }
     })();
-  }, [datasetId, isCleaned, userRegion]);
+  }, [datasetId, isCleaned, regionScopeKey]);
 
   useEffect(() => {
     if (!datasetId || !isCleaned) return;
     loadAlertas();
-  }, [datasetId, isCleaned, anioInicio, anioFin, region]);
+  }, [datasetId, isCleaned, anioInicio, anioFin, region, regionScopeKey]);
 
   const loadAlertas = async () => {
     setLoading(true);
@@ -59,8 +62,7 @@ export default function AlertasView({ datasetId, currentDataset, user }) {
       const res = await api.getAlertas(datasetId, {
         anioInicio: anioInicio || undefined,
         anioFin: anioFin || undefined,
-        region: region !== 'todos' ? region : undefined,
-        userRegion
+        region: !isRegionLocked && region !== 'todos' ? region : undefined
       });
       setData(res);
     } catch (err) {
@@ -124,12 +126,24 @@ export default function AlertasView({ datasetId, currentDataset, user }) {
           </select>
         </div>
         <div className="filter-group">
-          <label>Región</label>
-          <select value={region} onChange={(e) => setRegion(e.target.value)}>
-            <option value="todos">Todas</option>
-            {(filters?.regions || []).map((r) => (
-              <option key={r} value={r}>{r}</option>
-            ))}
+          <label>Región / centro</label>
+          <select
+            value={isRegionLocked ? lockedRegion : region}
+            onChange={(e) => setRegion(e.target.value)}
+            disabled={isRegionLocked}
+          >
+            {isRegionLocked ? (
+              <option value={lockedRegion}>
+                {regionScope.length === 1 ? `${lockedRegion} (asignado)` : 'Alcance asignado'}
+              </option>
+            ) : (
+              <>
+                <option value="todos">Todas</option>
+                {(filters?.regions || []).map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </>
+            )}
           </select>
         </div>
       </div>
@@ -142,7 +156,7 @@ export default function AlertasView({ datasetId, currentDataset, user }) {
         <div className="card" style={{ textAlign: 'center', padding: 40 }}>Analizando anomalías…</div>
       ) : data && (
         <>
-          <div className="grid-2">
+          <div className="grid-2 alertas-charts-grid">
             <div className="card">
               <div className="card-title">
                 Órdenes vs promedio mensual
@@ -185,7 +199,7 @@ export default function AlertasView({ datasetId, currentDataset, user }) {
                       <ReferenceLine y={data.promedio_margen} stroke="#059669" strokeDasharray="4 4" />
                       <Bar dataKey="margen" name="Margen" radius={[4, 4, 0, 0]}>
                         {(data.margen_por_periodo || []).map((entry, i) => (
-                          <Cell key={i} fill={entry.anomalia ? '#D97706' : '#059669'} />
+                          <Cell key={i} fill={entry.anomalia ? '#000000ff' : '#059669'} />
                         ))}
                       </Bar>
                     </BarChart>

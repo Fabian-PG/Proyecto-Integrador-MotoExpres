@@ -1,12 +1,13 @@
 import React, { useState, useEffect } from 'react';
 import { ShieldCheck, Lock, EyeOff, AlertTriangle, CheckCircle2, Sliders, Scale } from 'lucide-react';
-import { api } from '../api/client';
+import { api, getRegionScope } from '../api/client';
 
-export default function AnonimizacionView({ datasetId, onAnonymizeCompleted }) {
+export default function AnonimizacionView({ datasetId, onAnonymizeCompleted, user }) {
   const [loading, setLoading] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [applying, setApplying] = useState(false);
   const [applyResult, setApplyResult] = useState(null);
+  const isRegionRestricted = getRegionScope(user).length > 0;
 
   useEffect(() => {
     if (datasetId) {
@@ -116,16 +117,22 @@ export default function AnonimizacionView({ datasetId, onAnonymizeCompleted }) {
                 </div>
               </div>
 
-              <button className="btn btn-primary" onClick={handleApplyAnonymization} disabled={applying}>
-                {applying ? (
-                  <span>Anonimizando...</span>
-                ) : (
-                  <>
-                    <EyeOff size={16} />
-                    <span>Aplicar Anonimización</span>
-                  </>
-                )}
-              </button>
+              {!isRegionRestricted ? (
+                <button className="btn btn-primary" onClick={handleApplyAnonymization} disabled={applying}>
+                  {applying ? (
+                    <span>Anonimizando...</span>
+                  ) : (
+                    <>
+                      <EyeOff size={16} />
+                      <span>Aplicar Anonimización</span>
+                    </>
+                  )}
+                </button>
+              ) : (
+                <p className="kpi-subtext">
+                  La aplicación de anonimización requiere acceso a todos los centros.
+                </p>
+              )}
             </div>
 
             {applyResult && (
